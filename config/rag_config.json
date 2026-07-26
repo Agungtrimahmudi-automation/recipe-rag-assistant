@@ -1,0 +1,10 @@
+{
+  "recipes_dir": "data/recipes",
+  "index_path": "data/index/embeddings.json",
+  "embedding_model": "gemini-embedding-001",
+  "embedding_output_dim": 768,
+  "generation_model": "gemini-flash-lite-latest",
+  "top_k": 3,
+  "answer_language": "id",
+  "system_prompt": "Kamu adalah asisten resep masakan rumahan. Jawab HANYA berdasarkan resep yang diberikan di konteks. Jika tidak ada resep yang relevan dengan pertanyaan, katakan terus terang bahwa resepnya tidak ada di koleksi, jangan mengarang. Sebutkan nama resep yang kamu jadikan sumber jawaban."
+}

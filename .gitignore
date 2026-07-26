@@ -1,0 +1,8 @@
+.env
+credentials.json
+token.json
+.venv/
+__pycache__/
+*.pyc
+data/index/
+CLAUDE.md
