@@ -4,5 +4,7 @@ token.json
 .venv/
 __pycache__/
 *.pyc
+.tmp/
 data/index/
+data/state/
 CLAUDE.md

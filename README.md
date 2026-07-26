@@ -1,84 +1,132 @@
-# Recipe RAG — Personal Cooking Assistant
+# Recipe RAG — Telegram Cooking Assistant
 
-A small retrieval-augmented generation (RAG) pipeline that answers everyday
-cooking questions using only a personal collection of recipes — no invented
-recipes, no generic internet answers.
+A retrieval-augmented generation (RAG) pipeline, wrapped as a Telegram bot,
+that answers everyday cooking questions using only a real recipe collection —
+no invented recipes, no generic internet answers.
 
 ## Problem
 
-"What can I cook with chicken and soy sauce?" is a question I ask myself
-several times a week, and the answer I want is one of *my own* recipes, not
-whatever a search engine surfaces. A plain LLM call can't see my recipe
-collection, and it will happily invent a plausible-sounding recipe that isn't
-actually one I use. I wanted a minimal RAG pipeline that grounds its answer
-in a real, personal document set, and says "not in my collection" instead of
-guessing.
+"What can I cook with the tempe I already have?" is a question worth asking a
+bot instead of a search engine, but only if the bot actually looks at a real
+recipe collection instead of hallucinating a plausible-sounding one. A plain
+LLM call can't see any particular collection and will happily invent
+ingredients or steps that don't exist. I wanted a pipeline that grounds every
+factual claim in a real document set, reachable from Telegram, that admits
+"not in my collection" instead of guessing — and that behaves like an actual
+assistant (chit-chat, follow-up questions, picking from a shortlist) rather
+than a one-shot search box that dumps a wall of links.
 
 ## Solution
 
-The pipeline has two stages, kept as separate, composable scripts rather than
-one script that does everything:
+Three pieces, kept separate and composable rather than one script that does
+everything:
 
-1. **`tools/build_index.py`** — reads every recipe (`.md`) in `data/recipes/`,
-   embeds each one with Gemini's `gemini-embedding-001` model, and caches the
-   vectors to `data/index/embeddings.json`. Run this once, and again whenever
-   a recipe is added, edited, or removed.
-2. **`tools/ask.py`** — embeds the incoming question, ranks cached recipe
-   vectors by cosine similarity (plain NumPy — no vector database needed at
-   this scale), and passes only the top-k matching recipes to
-   `gemini-flash-lite-latest` as context. The system prompt explicitly
-   instructs the model to answer only from that context and admit when
-   nothing matches, rather than hallucinate.
+1. **`tools/prepare_dataset.py`** — samples the Kaggle
+   [`canggih/indonesian-food-recipes`](https://www.kaggle.com/datasets/canggih/indonesian-food-recipes)
+   dataset (8 categories scraped from Cookpad Indonesia, CC0-1.0) down to the
+   125 most-loved recipes per category into `data/recipes.jsonl` — 1,000
+   recipes total, each keeping its Cookpad source URL for attribution.
+2. **`tools/build_index.py`** — embeds every recipe with Gemini's
+   `gemini-embedding-001` and caches the vectors to
+   `data/index/embeddings.json`. Resumable by recipe id: re-running it only
+   embeds genuinely new rows, and backfills new metadata fields (like
+   `category`) onto already-cached entries for free, with no repeat API
+   calls.
+3. **`tools/ask.py`** / **`tools/api.py`** — the retrieval + generation
+   logic, either as a CLI (`ask.py`, for manual testing) or as a small
+   FastAPI service (`api.py`) that an n8n workflow calls over HTTP so the
+   Telegram integration, hosting, and credentials stay in n8n while the RAG
+   logic stays in Python.
 
-I chose full-recipe chunking (one recipe = one chunk) instead of splitting
-documents into smaller passages, since each recipe is short enough to fit
-whole and splitting would have separated ingredients from steps. I also
-skipped a vector database — cosine similarity over a NumPy array is a single
-function call at this scale (a handful to a few hundred recipes), and adding
-FAISS/Chroma would have been complexity the problem doesn't need yet.
+Two retrieval decisions worth calling out:
 
-Everything tunable — which models, how many recipes to retrieve, the
-grounding instructions — lives in `config/rag_config.json`, not hardcoded in
-the scripts.
+- **No vector database.** Retrieval is brute-force cosine similarity over a
+  flat JSON file (plain NumPy) — no pgvector/Chroma/FAISS. At 1,000 recipes
+  this is comfortably under 50ms per query in memory. A real vector DB would
+  only start to earn its complexity if this collection grew by an order of
+  magnitude or more.
+- **No chunking.** Each recipe is embedded whole (title + ingredients +
+  steps). A recipe is an atomic answer unit — splitting ingredients from
+  steps would produce fragments that can't stand on their own, unlike a
+  long multi-section document where chunking earns its keep.
+- **Category as a free metadata filter.** The dataset already carries a
+  `category` field (ayam, ikan, kambing, sapi, tahu, telur, tempe, udang —
+  125 recipes each). `detect_category()` in `ask.py` does a plain keyword
+  match against the question; when exactly one category matches, retrieval
+  narrows to that ~125-recipe subset and pulls a wider candidate pool
+  (`top_k_category`) before ranking by similarity. Without this, a broad
+  question like "I have tempe, what can I cook?" would silently surface only
+  3 of the ~150 tempe recipes with no signal that more exist.
+
+The system prompt (`config/rag_config.json`) is instructed to list the
+matching recipe *titles* and ask which one the user wants, rather than
+either blending steps from several recipes into one answer or picking one
+arbitrarily — the shortlist itself is grounded in the actual retrieved
+titles, never invented.
+
+For the Telegram bot specifically, `tools/api.py` accepts an optional
+`session_id` (the Telegram chat id) and keeps the last few question/answer
+turns per session in `data/state/conversations.db` (SQLite), so a follow-up
+like "yang oreg tempe aja deh, gimana caranya?" resolves against what was
+actually just discussed instead of being treated as an unrelated new
+question.
+
+Everything tunable — models, `top_k`, category keywords, history length, the
+grounding/behavior instructions — lives in `config/rag_config.json`, not
+hardcoded in the scripts.
 
 ### Why Gemini instead of Claude
 
-The original plan for this project used Claude Haiku for generation. I
-dropped that: a Claude Pro subscription is billed completely separately from
-the Anthropic API, so using Claude here would have meant setting up a new,
-separate paid API account just for a demo. Gemini's free tier already
-covered both embeddings and generation, so the whole pipeline runs on Gemini
-end to end.
+The original plan used Claude Haiku for generation. I dropped that: a Claude
+Pro subscription is billed completely separately from the Anthropic API, so
+using Claude here would have meant a new, separate paid API account just for
+a personal project. Gemini's free tier already covers both embeddings and
+generation, so the whole pipeline runs on Gemini end to end.
 
 ## Result
 
-Example run, retrieving from a 12-recipe collection sourced from Kompas Food
-(see `Sumber` in each recipe file):
+Real run against the live 1,000-recipe collection:
 
 ```
-$ python tools/ask.py "punya sisa nasi mau dijadiin apa ya yang gampang?" --show-sources
+$ python tools/ask.py "saya punya tempe di rumah, enaknya dimasak apa ya?" --show-sources
 Sumber yang diambil:
-  - Cireng Nasi (skor=0.781)
-  - Nasi Goreng Sederhana (skor=0.727)
-  - Nasi Telur Dadar Sambal Tomat (skor=0.702)
-Berdasarkan resep yang tersedia di koleksi, sisa nasi dapat diolah menjadi
-Cireng Nasi atau Nasi Goreng Sederhana.
+  - Tempe Goreng Telur (skor=0.730)
+  - Tempe Goreng Telur (skor=0.729)
+  - Tempe Goreng Telur (skor=0.727)
+  - Tempe Melet (skor=0.727)
+  - Tempe Melet (skor=0.726)
+  - Oreg tempe (skor=0.725)
+  - Tempe kriuk instan by Sii Trias💓 (skor=0.725)
+  - Tempe isi Sambel (skor=0.725)
+
+Halo! Wah, asyik banget punya stok tempe di rumah. [...] Berikut adalah
+daftar judul resep yang bisa kamu pilih:
+
+1. Tempe Goreng Telur (Sumber: https://cookpad.com/id/resep/4252407-...)
+2. Tempe Goreng Telur (Sumber: https://cookpad.com/id/resep/4029038-...)
+...
+8. Tempe isi Sambel (Sumber: https://cookpad.com/id/resep/4251330-...)
+
+Kira-kira kamu lagi pengen coba bikin resep yang mana nih?
 ```
 
-And the grounding check — a recipe that isn't in the collection:
+Follow-up in the same Telegram chat (`session_id` carried over):
 
 ```
-$ python tools/ask.py "resep rendang daging sapi bagaimana?" --show-sources
-Sumber yang diambil:
-  - Sayur Lodeh Tempe Goreng (skor=0.613)
-  - Oseng Sosis (skor=0.610)
-  - Oseng Tempe Kering (skor=0.607)
-Maaf, resep rendang daging sapi tidak ada di koleksi.
+User: yang oreg tempe aja deh, gimana caranya?
+
+Wah, pilihan yang pas banget! [...] ini dia bahan-bahan dan langkah lengkap
+untuk membuat Oreg tempe (Sumber: https://cookpad.com/id/resep/4448232-...):
+
+Bahan-bahan:
+- 500 gr tempe
+- 5 buah cabe ije ...
+[...]
 ```
 
-Retrieval still returns its nearest neighbors (similarity scores around
-0.6), but the model correctly refuses to answer from weak matches instead of
-fabricating a rendang recipe.
+And the grounding check — a question with genuinely no match returns a
+plain refusal instead of a fabricated recipe, citing the collection, not
+guessing from general knowledge.
 
 ## Setup
 
@@ -92,40 +140,66 @@ Copy `.env.example` to `.env` and fill in a Gemini API key from
 [Google AI Studio](https://aistudio.google.com/apikey):
 
 ```
-GEMINI_API_KEY=your-key-here
+GEMINI_API_KEY_RAG=your-key-here
 ```
 
-Then build the index and ask a question:
+Build the index (the pre-sampled `data/recipes.jsonl` is already checked in,
+so this just embeds it — no Kaggle download needed unless you want to
+resample):
 
 ```bash
 python tools/build_index.py
 python tools/ask.py "resep apa yang bisa dibuat dari telur?"
 ```
 
+### Running the Telegram bot
+
+The bot itself is an n8n workflow (Telegram trigger → HTTP call to the
+Python API → reply), not part of this repo. This repo only ships the API
+side:
+
+```bash
+docker compose up -d --build
+```
+
+This builds and runs `tools/api.py` on port 8000, on the same Docker network
+as the n8n instance, with `data/state/` mounted as a volume so conversation
+history survives a redeploy. The n8n workflow's HTTP Request node points at
+`http://recipe-api:8000/ask` and forwards the Telegram `chat.id` as
+`session_id`.
+
 ## Project layout
 
 ```
-config/rag_config.json   # models, top_k, grounding prompt — all tunable
-data/recipes/*.md         # the source recipes (demo data — replace with your own)
-data/index/               # cached embeddings, rebuilt by build_index.py
-tools/build_index.py       # embed recipes -> cache
-tools/ask.py                # retrieve + generate an answer
-tools/_common.py            # shared env/config/API helpers
-workflows/ask_recipe.md     # SOP for this pipeline
+config/rag_config.json     # models, top_k, category keywords, history length, system prompt
+data/recipes.jsonl          # 1,000 sampled recipes (source data, checked in)
+data/index/                 # cached embeddings, rebuilt by build_index.py
+data/state/                 # conversation history (SQLite, gitignored — real user data)
+tools/prepare_dataset.py    # Kaggle CSVs -> data/recipes.jsonl
+tools/build_index.py        # embed recipes -> cache
+tools/ask.py                 # CLI: retrieve + generate an answer
+tools/api.py                 # FastAPI wrapper for the Telegram bot (n8n calls this)
+tools/conversation_store.py # per-session Q/A history for follow-up questions
+tools/_common.py             # shared env/config/Gemini API helpers
+workflows/ask_recipe.md      # SOP for this pipeline
+Dockerfile, docker-compose.yml  # container for tools/api.py
 ```
 
 ## Known limitations
 
-- **Small dataset.** The 12 recipes here are sourced from a single Kompas
-  Food roundup article (cited in each recipe's `Sumber` line) to prove the
-  pipeline works end to end — add your own recipes to `data/recipes/` to make
-  it genuinely useful day to day.
-- **No relevance threshold.** Retrieval always returns its top-k nearest
-  vectors, even when nothing is truly relevant; refusal relies entirely on
-  the system prompt's instruction rather than a hard similarity cutoff.
-- **No chunking for long documents.** Each recipe is embedded whole. A much
-  longer document (e.g. a multi-page cookbook) would need real chunking,
-  which this pipeline doesn't implement.
+- **Category detection is a plain keyword match**, not real intent
+  understanding. "Tempe atau ayam?" mentions two categories and falls back to
+  plain semantic search across all 1,000 recipes rather than picking one.
+- **No hard relevance threshold.** Retrieval always returns its top-k
+  nearest vectors, even when nothing is truly relevant; refusal relies on
+  the system prompt's instruction rather than a similarity cutoff.
+- **Conversation history is capped at 50 stored turns per session** and
+  only the most recent `history_turns` (default 6) are fed into any given
+  answer — a long-running chat will lose earlier context, by design, to
+  keep the prompt small.
+- **Not a real vector database, and not chunked** — see the rationale under
+  Solution. Both are deliberate choices for a 1,000-recipe, whole-document
+  collection, not omissions.
 - **In Indonesian.** Recipes and answers are in Indonesian since that's the
   actual daily-use case; the system prompt and model would need adjusting
   for another language.

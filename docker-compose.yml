@@ -1,0 +1,15 @@
+services:
+  recipe-api:
+    build: .
+    container_name: recipe_rag_api
+    restart: unless-stopped
+    environment:
+      - GEMINI_API_KEY_RAG=${GEMINI_API_KEY_RAG}
+    volumes:
+      - ./data/state:/app/data/state
+    networks:
+      - n8n-stack_default
+
+networks:
+  n8n-stack_default:
+    external: true

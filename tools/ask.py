@@ -16,6 +16,12 @@ import numpy as np
 
 from _common import PROJECT_ROOT, embed_text, generate_text, load_config
 
+# Recipe titles/answers can contain emoji; Windows consoles default to cp1252,
+# which can't encode them and crashes print() mid-answer.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 
 def cosine_similarity(a, b):
     a = np.array(a)
@@ -38,22 +44,45 @@ def load_index(config):
         return json.load(f)
 
 
-def retrieve(question_vector, index, top_k):
+def detect_category(question, categories):
+    """Cheap keyword match against the recipe collection's own category field
+    (e.g. "tempe", "ayam") — lets a broad ingredient question pull from the
+    full ~125-recipe category instead of whatever 3 rank highest by pure
+    cosine similarity across all 1000. Ambiguous (0 or 2+ hits) means no
+    filter, so retrieval falls back to plain semantic search."""
+    q = question.lower()
+    hits = {c for c in categories if c in q}
+    return next(iter(hits)) if len(hits) == 1 else None
+
+
+def retrieve(question_vector, index, top_k, category=None):
+    entries = index["entries"]
+    if category:
+        narrowed = [e for e in entries if e.get("category") == category]
+        if narrowed:
+            entries = narrowed
     scored = [
         (cosine_similarity(question_vector, entry["embedding"]), entry)
-        for entry in index["entries"]
+        for entry in entries
     ]
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return scored[:top_k]
 
 
-def build_prompt(system_prompt, question, retrieved):
+def build_prompt(system_prompt, question, retrieved, history=None):
     context_blocks = "\n\n".join(
-        f"### {entry['title']} (sumber: {entry['source_file']})\n{entry['text']}"
+        f"### {entry['title']} (sumber: {entry.get('source_url', 'tidak diketahui')})\n{entry['text']}"
         for _, entry in retrieved
     )
+    history_block = ""
+    if history:
+        turns = "\n".join(
+            f"User: {turn['question']}\nAsisten: {turn['answer']}" for turn in history
+        )
+        history_block = f"Riwayat percakapan sebelumnya:\n{turns}\n\n"
     return (
         f"{system_prompt}\n\n"
+        f"{history_block}"
         f"Konteks resep yang tersedia:\n{context_blocks}\n\n"
         f"Pertanyaan: {question}\n\nJawaban:"
     )
@@ -70,7 +99,13 @@ def main():
     args = parser.parse_args()
 
     config = load_config(args.config)
-    top_k = args.top_k or config["top_k"]
+    category = detect_category(args.question, config.get("categories", []))
+    if args.top_k:
+        top_k = args.top_k
+    elif category:
+        top_k = config.get("top_k_category", config["top_k"])
+    else:
+        top_k = config["top_k"]
 
     index = load_index(config)
     question_vector = embed_text(
@@ -80,7 +115,7 @@ def main():
         task_type="RETRIEVAL_QUERY",
     )
 
-    retrieved = retrieve(question_vector, index, top_k)
+    retrieved = retrieve(question_vector, index, top_k, category=category)
 
     if args.show_sources:
         print("Sumber yang diambil:", file=sys.stderr)
