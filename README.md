@@ -4,6 +4,27 @@ A retrieval-augmented generation (RAG) pipeline, wrapped as a Telegram bot,
 that answers everyday cooking questions using only a real recipe collection —
 no invented recipes, no generic internet answers.
 
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![Gemini](https://img.shields.io/badge/Google%20Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)
+![n8n](https://img.shields.io/badge/n8n-0A0A0A?style=for-the-badge&logo=n8n&logoColor=white)
+![Telegram](https://img.shields.io/badge/Telegram-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)
+
+---
+
+## Table of Contents
+
+- [Problem](#problem)
+- [Solution](#solution)
+- [Result](#result)
+- [Setup](#setup)
+- [Project layout](#project-layout)
+- [Known limitations](#known-limitations)
+- [License](#license)
+
+---
+
 ## Problem
 
 "What can I cook with the tempe I already have?" is a question worth asking a
@@ -37,6 +58,23 @@ everything:
    FastAPI service (`api.py`) that an n8n workflow calls over HTTP so the
    Telegram integration, hosting, and credentials stay in n8n while the RAG
    logic stays in Python.
+
+```mermaid
+flowchart LR
+    A["prepare_dataset.py<br/>Kaggle CSVs"] --> B["data/recipes.jsonl<br/>1,000 recipes"]
+    B --> C["build_index.py<br/>Gemini embeddings"]
+    C --> D["data/index/embeddings.json<br/>cached vectors"]
+```
+
+```mermaid
+flowchart LR
+    A["Telegram"] --> B["n8n workflow<br/>HTTP Request node"]
+    B --> C["api.py (FastAPI)<br/>/ask endpoint"]
+    C --> D["ask.py<br/>retrieve + generate"]
+    D --> E["Gemini<br/>grounded answer"]
+    D --> F["conversation_store.py<br/>SQLite per session_id"]
+    E --> B
+```
 
 Two retrieval decisions worth calling out:
 
@@ -207,3 +245,11 @@ Dockerfile, docker-compose.yml  # container for tools/api.py
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## 👤 Author
+
+**Agung Tri Mahmudi**
+
+- Email: agungtrimahmudi.it@gmail.com
+- GitHub: [github.com/Agungtrimahmudi-automation](https://github.com/Agungtrimahmudi-automation)
+- LinkedIn: [linkedin.com/in/agung-tri-mahmudi](https://linkedin.com/in/agung-tri-mahmudi)
