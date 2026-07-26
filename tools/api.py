@@ -10,8 +10,9 @@ Run with:
 
 Endpoints:
     GET  /health          -> {"status": "ok", "recipes_indexed": N}
-    POST /ask {"question": "..."} -> {"answer": "...", "sources": [...]}
+    POST /ask {"question": "..."} -> {"answer": "...", "sources": [...], "reply_text": "..."}
 """
+import html
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -44,6 +45,23 @@ class Source(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     sources: List[Source]
+    reply_text: str
+
+
+def build_reply_text(answer, sources):
+    """Telegram-ready HTML: the answer plus a numbered "Sumber" footer where
+    each recipe title is the clickable link text (not a raw URL). Built here
+    instead of as an n8n expression — n8n's expression sandbox choked on the
+    regex literals this needed ("invalid syntax"), and this is easier to
+    test and version than JS embedded in a workflow node anyway."""
+    text = html.escape(answer, quote=False)
+    if sources:
+        lines = [
+            f'{i + 1}. <a href="{s.source_url}">{html.escape(s.title, quote=False)}</a>'
+            for i, s in enumerate(sources)
+        ]
+        text += "\n\n\U0001f4ce Sumber:\n" + "\n".join(lines)
+    return text
 
 
 @app.get("/health")
@@ -91,4 +109,5 @@ def ask(req: AskRequest):
         Source(title=entry["title"], source_url=entry.get("source_url", ""), score=round(score, 3))
         for score, entry in retrieved
     ]
-    return AskResponse(answer=answer, sources=sources)
+    reply_text = build_reply_text(answer, sources)
+    return AskResponse(answer=answer, sources=sources, reply_text=reply_text)
