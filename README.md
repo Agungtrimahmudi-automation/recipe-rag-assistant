@@ -11,6 +11,9 @@ no invented recipes, no generic internet answers.
 ![n8n](https://img.shields.io/badge/n8n-0A0A0A?style=for-the-badge&logo=n8n&logoColor=white)
 ![Telegram](https://img.shields.io/badge/Telegram-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)
 
+**Status:** Studi kasus teknis / proyek personal — dibangun untuk mengeksplorasi desain RAG
+tanpa vector database, dipakai untuk kebutuhan pribadi lewat Telegram.
+
 ---
 
 ## Table of Contents
