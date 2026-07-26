@@ -1,6 +1,7 @@
 """Shared helpers for the recipe RAG tools: env loading, config loading, Gemini API calls."""
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -9,6 +10,21 @@ import requests
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_INLINE_SOURCE_RE = re.compile(r"\s*\(Sumber:\s*https?://\S+\)", re.IGNORECASE)
+
+
+def clean_answer_text(text):
+    """The system prompt asks the model for plain text with no markdown and
+    no inline URLs (Telegram gets its own deterministic clickable-title
+    footer built from the sources array instead), but the generation model
+    doesn't reliably follow that — it still writes **bold** and inline
+    "(Sumber: url)" citations often enough that this can't be left to prompt
+    compliance alone. Strip both deterministically instead."""
+    text = _BOLD_RE.sub(r"\1", text)
+    text = _INLINE_SOURCE_RE.sub("", text)
+    return text
 
 
 def _server_retry_delay(resp):

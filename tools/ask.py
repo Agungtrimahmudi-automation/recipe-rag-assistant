@@ -14,7 +14,7 @@ import sys
 
 import numpy as np
 
-from _common import PROJECT_ROOT, embed_text, generate_text, load_config
+from _common import PROJECT_ROOT, clean_answer_text, embed_text, generate_text, load_config
 
 # Recipe titles/answers can contain emoji; Windows consoles default to cp1252,
 # which can't encode them and crashes print() mid-answer.
@@ -124,7 +124,7 @@ def main():
 
     prompt = build_prompt(config["system_prompt"], args.question, retrieved)
     answer = generate_text(prompt, model=config["generation_model"])
-    print(answer.strip())
+    print(clean_answer_text(answer.strip()))
 
 
 if __name__ == "__main__":

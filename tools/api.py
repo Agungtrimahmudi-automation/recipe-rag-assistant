@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import embed_text, generate_text, load_config  # noqa: E402
+from _common import clean_answer_text, embed_text, generate_text, load_config  # noqa: E402
 from ask import build_prompt, detect_category, load_index, retrieve  # noqa: E402
 from conversation_store import get_recent_turns, save_turn  # noqa: E402
 
@@ -83,7 +83,7 @@ def ask(req: AskRequest):
     retrieved = retrieve(question_vector, _index, top_k, category=category)
     prompt = build_prompt(_config["system_prompt"], question, retrieved, history=history)
     answer = generate_text(prompt, model=_config["generation_model"])
-    answer = answer.strip()
+    answer = clean_answer_text(answer.strip())
 
     save_turn(req.session_id, question, answer)
 
