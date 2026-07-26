@@ -1,7 +1,7 @@
-# Recipe RAG — Telegram Cooking Assistant
+# Recipe RAG: Telegram Cooking Assistant
 
 A retrieval-augmented generation (RAG) pipeline, wrapped as a Telegram bot,
-that answers everyday cooking questions using only a real recipe collection —
+that answers everyday cooking questions using only a real recipe collection:
 no invented recipes, no generic internet answers.
 
 ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
@@ -11,8 +11,8 @@ no invented recipes, no generic internet answers.
 ![n8n](https://img.shields.io/badge/n8n-0A0A0A?style=for-the-badge&logo=n8n&logoColor=white)
 ![Telegram](https://img.shields.io/badge/Telegram-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)
 
-**Status:** Produksi — penggunaan pribadi. Berjalan aktif lewat Telegram untuk kebutuhan
-sehari-hari, dibangun dengan desain RAG tanpa vector database.
+**Status:** Production (personal use). Actively running via Telegram for daily use, built
+with a RAG design that has no vector database.
 
 ---
 
@@ -36,7 +36,7 @@ recipe collection instead of hallucinating a plausible-sounding one. A plain
 LLM call can't see any particular collection and will happily invent
 ingredients or steps that don't exist. I wanted a pipeline that grounds every
 factual claim in a real document set, reachable from Telegram, that admits
-"not in my collection" instead of guessing — and that behaves like an actual
+"not in my collection" instead of guessing, and that behaves like an actual
 assistant (chit-chat, follow-up questions, picking from a shortlist) rather
 than a one-shot search box that dumps a wall of links.
 
@@ -45,18 +45,18 @@ than a one-shot search box that dumps a wall of links.
 Three pieces, kept separate and composable rather than one script that does
 everything:
 
-1. **`tools/prepare_dataset.py`** — samples the Kaggle
+1. **`tools/prepare_dataset.py`**: samples the Kaggle
    [`canggih/indonesian-food-recipes`](https://www.kaggle.com/datasets/canggih/indonesian-food-recipes)
    dataset (8 categories scraped from Cookpad Indonesia, CC0-1.0) down to the
-   125 most-loved recipes per category into `data/recipes.jsonl` — 1,000
+   125 most-loved recipes per category into `data/recipes.jsonl`, 1,000
    recipes total, each keeping its Cookpad source URL for attribution.
-2. **`tools/build_index.py`** — embeds every recipe with Gemini's
+2. **`tools/build_index.py`**: embeds every recipe with Gemini's
    `gemini-embedding-001` and caches the vectors to
    `data/index/embeddings.json`. Resumable by recipe id: re-running it only
    embeds genuinely new rows, and backfills new metadata fields (like
    `category`) onto already-cached entries for free, with no repeat API
    calls.
-3. **`tools/ask.py`** / **`tools/api.py`** — the retrieval + generation
+3. **`tools/ask.py`** / **`tools/api.py`**: the retrieval + generation
    logic, either as a CLI (`ask.py`, for manual testing) or as a small
    FastAPI service (`api.py`) that an n8n workflow calls over HTTP so the
    Telegram integration, hosting, and credentials stay in n8n while the RAG
@@ -82,16 +82,16 @@ flowchart LR
 Two retrieval decisions worth calling out:
 
 - **No vector database.** Retrieval is brute-force cosine similarity over a
-  flat JSON file (plain NumPy) — no pgvector/Chroma/FAISS. At 1,000 recipes
+  flat JSON file (plain NumPy), no pgvector/Chroma/FAISS. At 1,000 recipes
   this is comfortably under 50ms per query in memory. A real vector DB would
   only start to earn its complexity if this collection grew by an order of
   magnitude or more.
 - **No chunking.** Each recipe is embedded whole (title + ingredients +
-  steps). A recipe is an atomic answer unit — splitting ingredients from
+  steps). A recipe is an atomic answer unit: splitting ingredients from
   steps would produce fragments that can't stand on their own, unlike a
   long multi-section document where chunking earns its keep.
 - **Category as a free metadata filter.** The dataset already carries a
-  `category` field (ayam, ikan, kambing, sapi, tahu, telur, tempe, udang —
+  `category` field (ayam, ikan, kambing, sapi, tahu, telur, tempe, udang,
   125 recipes each). `detect_category()` in `ask.py` does a plain keyword
   match against the question; when exactly one category matches, retrieval
   narrows to that ~125-recipe subset and pulls a wider candidate pool
@@ -102,7 +102,7 @@ Two retrieval decisions worth calling out:
 The system prompt (`config/rag_config.json`) is instructed to list the
 matching recipe *titles* and ask which one the user wants, rather than
 either blending steps from several recipes into one answer or picking one
-arbitrarily — the shortlist itself is grounded in the actual retrieved
+arbitrarily; the shortlist itself is grounded in the actual retrieved
 titles, never invented.
 
 For the Telegram bot specifically, `tools/api.py` accepts an optional
@@ -112,8 +112,8 @@ like "yang oreg tempe aja deh, gimana caranya?" resolves against what was
 actually just discussed instead of being treated as an unrelated new
 question.
 
-Everything tunable — models, `top_k`, category keywords, history length, the
-grounding/behavior instructions — lives in `config/rag_config.json`, not
+Everything tunable (models, `top_k`, category keywords, history length, the
+grounding/behavior instructions) lives in `config/rag_config.json`, not
 hardcoded in the scripts.
 
 ### Why Gemini instead of Claude
@@ -165,7 +165,7 @@ Bahan-bahan:
 [...]
 ```
 
-And the grounding check — a question with genuinely no match returns a
+And the grounding check: a question with genuinely no match returns a
 plain refusal instead of a fabricated recipe, citing the collection, not
 guessing from general knowledge.
 
@@ -185,7 +185,7 @@ GEMINI_API_KEY_RAG=your-key-here
 ```
 
 Build the index (the pre-sampled `data/recipes.jsonl` is already checked in,
-so this just embeds it — no Kaggle download needed unless you want to
+so this just embeds it, no Kaggle download needed unless you want to
 resample):
 
 ```bash
@@ -195,8 +195,8 @@ python tools/ask.py "resep apa yang bisa dibuat dari telur?"
 
 ### Running the Telegram bot
 
-The bot itself is an n8n workflow (Telegram trigger → HTTP call to the
-Python API → reply), not part of this repo. This repo only ships the API
+The bot itself is an n8n workflow (Telegram trigger to HTTP call to the
+Python API to reply), not part of this repo. This repo only ships the API
 side:
 
 ```bash
@@ -215,7 +215,7 @@ history survives a redeploy. The n8n workflow's HTTP Request node points at
 config/rag_config.json     # models, top_k, category keywords, history length, system prompt
 data/recipes.jsonl          # 1,000 sampled recipes (source data, checked in)
 data/index/                 # cached embeddings, rebuilt by build_index.py
-data/state/                 # conversation history (SQLite, gitignored — real user data)
+data/state/                 # conversation history (SQLite, gitignored, real user data)
 tools/prepare_dataset.py    # Kaggle CSVs -> data/recipes.jsonl
 tools/build_index.py        # embed recipes -> cache
 tools/ask.py                 # CLI: retrieve + generate an answer
@@ -236,9 +236,9 @@ Dockerfile, docker-compose.yml  # container for tools/api.py
   the system prompt's instruction rather than a similarity cutoff.
 - **Conversation history is capped at 50 stored turns per session** and
   only the most recent `history_turns` (default 6) are fed into any given
-  answer — a long-running chat will lose earlier context, by design, to
+  answer; a long-running chat will lose earlier context, by design, to
   keep the prompt small.
-- **Not a real vector database, and not chunked** — see the rationale under
+- **Not a real vector database, and not chunked**: see the rationale under
   Solution. Both are deliberate choices for a 1,000-recipe, whole-document
   collection, not omissions.
 - **In Indonesian.** Recipes and answers are in Indonesian since that's the
@@ -247,7 +247,7 @@ Dockerfile, docker-compose.yml  # container for tools/api.py
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
 
 ## 👤 Author
 
